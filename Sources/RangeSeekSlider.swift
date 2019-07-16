@@ -171,6 +171,9 @@ import UIKit
 
             rightHandle.frame = handleFrame
             rightHandle.contents = image.cgImage
+          
+            centerHandle.frame = handleFrame
+            centerHandle.contents = image.cgImage
         }
     }
 
@@ -224,7 +227,7 @@ import UIKit
 
     // MARK: - private stored properties
 
-    private enum HandleTracking { case none, left, right }
+    private enum HandleTracking { case none, left, right, center }
     private var handleTracking: HandleTracking = .none
 
     private let sliderLine: CALayer = CALayer()
@@ -232,6 +235,7 @@ import UIKit
 
     private let leftHandle: CALayer = CALayer()
     private let rightHandle: CALayer = CALayer()
+    private let centerHandle: CALayer = CALayer()
 
     fileprivate let minLabel: CATextLayer = CATextLayer()
     fileprivate let maxLabel: CATextLayer = CATextLayer()
@@ -242,7 +246,7 @@ import UIKit
     // UIFeedbackGenerator
     private var previousStepMinValue: CGFloat?
     private var previousStepMaxValue: CGFloat?
-
+  
     // strong reference needed for UIAccessibilityContainer
     // see http://stackoverflow.com/questions/13462046/custom-uiview-not-showing-accessibility-on-voice-over
     private var accessibleElements: [UIAccessibilityElement] = []
@@ -299,22 +303,39 @@ import UIKit
         let insetExpansion: CGFloat = -30.0
         let isTouchingLeftHandle: Bool = leftHandle.frame.insetBy(dx: insetExpansion, dy: insetExpansion).contains(touchLocation)
         let isTouchingRightHandle: Bool = rightHandle.frame.insetBy(dx: insetExpansion, dy: insetExpansion).contains(touchLocation)
-
-        guard isTouchingLeftHandle || isTouchingRightHandle else { return false }
+        let isTouchingCenterHandle: Bool = centerHandle.frame.contains(touchLocation)
+      
+        guard isTouchingLeftHandle || isTouchingRightHandle || isTouchingCenterHandle else { return false }
 
 
         // the touch was inside one of the handles so we're definitely going to start movign one of them. But the handles might be quite close to each other, so now we need to find out which handle the touch was closest too, and activate that one.
         let distanceFromLeftHandle: CGFloat = touchLocation.distance(to: leftHandle.frame.center)
         let distanceFromRightHandle: CGFloat = touchLocation.distance(to: rightHandle.frame.center)
-
-        if distanceFromLeftHandle < distanceFromRightHandle && !disableRange {
+        //let distanceFromCenterHandle: CGFloat = touchLocation.distance(to: centerHandle.frame.center)
+      
+        if (isTouchingCenterHandle){
+          handleTracking = .center
+        }
+        else if distanceFromLeftHandle < distanceFromRightHandle && !disableRange {
             handleTracking = .left
         } else if selectedMaxValue == maxValue && leftHandle.frame.midX == rightHandle.frame.midX {
             handleTracking = .left
         } else {
             handleTracking = .right
         }
-        let handle: CALayer = (handleTracking == .left) ? leftHandle : rightHandle
+      
+      let handle: CALayer!
+      switch handleTracking {
+        case .left:
+          handle = leftHandle
+        case .right:
+          handle = rightHandle
+        case .center:
+          handle = centerHandle
+        case .none:
+          handle = centerHandle
+      }
+        //let handle: CALayer = (handleTracking == .left) ? leftHandle : rightHandle
         animate(handle: handle, selected: true)
 
         delegate?.didStartTouches(in: self)
@@ -332,8 +353,27 @@ import UIKit
 
         // multiply that percentage by self.maxValue to get the new selected minimum value
         let selectedValue: CGFloat = percentage * (maxValue - minValue) + minValue
+      
+        //find the value difference between the two handles before updating their positions
+        let valueDifference = selectedMaxValue - selectedMinValue
 
         switch handleTracking {
+        case .center:
+          //restrict the center piece movement
+          if selectedValue >= (maxValue - valueDifference * 0.5) {
+            selectedMaxValue = maxValue
+            selectedMinValue = maxValue - valueDifference
+            break
+          }
+          
+          if selectedValue <= (minValue + valueDifference * 0.5) {
+            selectedMinValue = minValue
+            selectedMaxValue = minValue + valueDifference
+            break
+          }
+          
+            selectedMinValue = (selectedValue - 0.5 * valueDifference)
+            selectedMaxValue = (selectedValue + 0.5 * valueDifference)
         case .left:
             selectedMinValue = min(selectedValue, selectedMaxValue)
         case .right:
@@ -354,7 +394,19 @@ import UIKit
     }
 
     open override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        let handle: CALayer = (handleTracking == .left) ? leftHandle : rightHandle
+        //let handle: CALayer = (handleTracking == .left) ? leftHandle : rightHandle
+      let handle: CALayer!
+      switch handleTracking {
+      case .left:
+        handle = leftHandle
+      case .right:
+        handle = rightHandle
+      case .center:
+        handle = centerHandle
+      case .none:
+        handle = centerHandle
+      }
+      
         animate(handle: handle, selected: false)
         handleTracking = .none
 
@@ -405,11 +457,17 @@ import UIKit
         rightHandle.cornerRadius = handleDiameter / 2.0
         rightHandle.borderWidth = handleBorderWidth
         layer.addSublayer(rightHandle)
+      
+        //draw the center slider handle
+        centerHandle.cornerRadius = handleDiameter / 4.0
+        centerHandle.borderWidth = handleBorderWidth
+        layer.addSublayer(centerHandle)
 
         let handleFrame: CGRect = CGRect(x: 0.0, y: 0.0, width: handleDiameter, height: handleDiameter)
         leftHandle.frame = handleFrame
         rightHandle.frame = handleFrame
-
+        centerHandle.frame = CGRect(x: 0, y: 0, width: 2 * handleDiameter, height: handleDiameter)
+      
         // draw the text labels
         let labelFontSize: CGFloat = 12.0
         let labelFrame: CGRect = CGRect(x: 0.0, y: 50.0, width: 75.0, height: 14.0)
@@ -510,6 +568,8 @@ import UIKit
             leftHandle.borderColor = color
             rightHandle.backgroundColor = color
             rightHandle.borderColor = color
+            centerHandle.backgroundColor = color
+            centerHandle.borderColor = color
         } else {
             let tintCGColor: CGColor = tintColor.cgColor
             minLabel.foregroundColor = minLabelColor?.cgColor ?? tintCGColor
@@ -527,6 +587,8 @@ import UIKit
             leftHandle.borderColor = handleBorderColor.map { $0.cgColor }
             rightHandle.backgroundColor = color
             rightHandle.borderColor = handleBorderColor.map { $0.cgColor }
+            centerHandle.backgroundColor = color
+            centerHandle.borderColor = handleBorderColor.map { $0.cgColor }
         }
     }
 
@@ -541,6 +603,8 @@ import UIKit
         rightHandle.position = CGPoint(x: xPositionAlongLine(for: selectedMaxValue),
                                        y: sliderLine.frame.midY)
 
+        centerHandle.position = CGPoint(x: (leftHandle.position.x + rightHandle.position.x) * 0.5, y: leftHandle.position.y + 20)
+      
         // positioning for the dist slider line
         sliderLineBetweenHandles.frame = CGRect(x: leftHandle.position.x,
                                                 y: sliderLine.frame.minY,
@@ -550,8 +614,9 @@ import UIKit
     
     private func updateLabelPositions() {
         // the center points for the labels are X = the same x position as the relevant handle. Y = the y position of the handle minus half the height of the text label, minus some padding.
-
-        minLabel.frame.size = minLabelTextSize
+      let minLabelFrameSize = CGSize(width: minLabelTextSize.width, height: minLabelTextSize.height);
+      
+        minLabel.frame.size = minLabelFrameSize
         maxLabel.frame.size = maxLabelTextSize
 
         if labelsFixed {
@@ -562,18 +627,22 @@ import UIKit
         let minSpacingBetweenLabels: CGFloat = 8.0
 
         let newMinLabelCenter: CGPoint = CGPoint(x: leftHandle.frame.midX,
-                                                 y: leftHandle.frame.maxY + (minLabelTextSize.height/2) + labelPadding)
+                                                 y: leftHandle.frame.minY - (minLabelFrameSize.height/2) - labelPadding)
 
         let newMaxLabelCenter: CGPoint = CGPoint(x: rightHandle.frame.midX,
-                                                 y: rightHandle.frame.maxY + (maxLabelTextSize.height/2) + labelPadding)
+                                                 y: rightHandle.frame.minY - (maxLabelTextSize.height/2) - labelPadding)
         
         let newLeftMostXInMaxLabel: CGFloat = newMaxLabelCenter.x - maxLabelTextSize.width / 2.0
-        let newRightMostXInMinLabel: CGFloat = newMinLabelCenter.x + minLabelTextSize.width / 2.0
+        let newRightMostXInMinLabel: CGFloat = newMinLabelCenter.x + minLabelFrameSize.width / 2.0
         let newSpacingBetweenTextLabels: CGFloat = newLeftMostXInMaxLabel - newRightMostXInMinLabel
 
         if disableRange || newSpacingBetweenTextLabels > minSpacingBetweenLabels {
             minLabel.position = newMinLabelCenter
             maxLabel.position = newMaxLabelCenter
+//            minLabel.borderColor = UIColor.blue.cgColor
+//            minLabel.borderWidth = 2.0
+          
+            minLabel.cornerRadius = minLabel.bounds.height/4
 
             if minLabel.frame.minX < 0.0 {
                 minLabel.frame.origin.x = 0.0
@@ -638,6 +707,9 @@ import UIKit
 
         if diff < minDistance {
             switch handleTracking {
+            case .center:
+                selectedMinValue = selectedMaxValue - minDistance
+                selectedMaxValue = selectedMinValue + minDistance
             case .left:
                 selectedMinValue = selectedMaxValue - minDistance
             case .right:
@@ -647,6 +719,9 @@ import UIKit
             }
         } else if diff > maxDistance {
             switch handleTracking {
+            case .center:
+                selectedMinValue = selectedMaxValue - maxDistance
+                selectedMaxValue = selectedMinValue + maxDistance
             case .left:
                 selectedMinValue = selectedMaxValue - maxDistance
             case .right:
@@ -663,7 +738,7 @@ import UIKit
         if selectedMaxValue > maxValue {
             selectedMaxValue = maxValue
         }
-
+      
         // update the frames in a transaction so that the tracking doesn't continue until the frame has moved.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
